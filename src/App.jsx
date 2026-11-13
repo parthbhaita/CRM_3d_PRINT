@@ -221,17 +221,16 @@ export default function App() {
 
   const dashboard = <>
     <PageHeading title="Good evening, Admin 👋" detail="Here’s what’s happening across your Print_Bud operations today." action={<AddButton onClick={() => setModal("order")}>Create order</AddButton>} />
-    <div className="toolbar"><label><MapPin size={15} /><select value={location} onChange={event => setLocation(event.target.value)}><option>All locations</option><option>Main Workshop</option><option>Resin Lab</option><option>Branch 03</option></select><ChevronDown size={13} /></label><span><CalendarDays size={14} /> November 2026</span><em>Live overview</em></div>
+    <div className="toolbar"><label><MapPin size={15} /><select value={location} onChange={event => setLocation(event.target.value)}><option>All locations</option><option>Main Workshop</option><option>Resin Lab</option><option>Branch 03</option></select><ChevronDown size={13} /></label><span><CalendarDays size={14} /> {new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" }).format(new Date())}</span><em>Live overview</em></div>
     <div className="metrics">
-      <Metric title="Total revenue" value="₹1,85,400" change="+12.8%" Icon={CircleDollarSign} />
-      <Metric title="Net profit" value="₹62,300" change="+8.4%" Icon={Wallet} color="purple" />
-      <Metric title="Active orders" value={orders.filter(o => o.status !== "Delivered").length} change="+3 this week" Icon={ClipboardList} color="orange" />
-      <Metric title="Printer utilization" value="78%" change="+5.2%" Icon={Gauge} color="green" />
+      <Metric title="Order pipeline value" value={money(orderValue)} change={orders.length + " recorded orders"} Icon={CircleDollarSign} />
+      <Metric title="Open orders" value={activeOrders.length} change="Not delivered or cancelled" Icon={ClipboardList} color="purple" />
+      <Metric title="Low-stock materials" value={lowStockItems.length} change="At or below reorder level" Icon={Boxes} color="orange" />
+      <Metric title="Running printers" value={printers.filter(p => p.status === "Running").length} change={printers.length + " machines registered"} Icon={Gauge} color="green" />
     </div>
     <div className="dash-grid">
-      <section className="panel"><div className="panel-heading"><div><h3>Revenue overview</h3><p>Revenue and profit · ₹ thousands</p></div><span className="soft-tag">Last 6 months <ChevronDown size={13} /></span></div>
-        <div className="legend"><span><i className="revenue" />Revenue</span><span><i className="profit" />Profit</span></div>
-        <div className="chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={revenueData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}><defs><linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4c7de0" stopOpacity={0.2} /><stop offset="100%" stopColor="#4c7de0" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf0f5" /><XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#929bad", fontSize: 11 }} /><YAxis axisLine={false} tickLine={false} tick={{ fill: "#929bad", fontSize: 10 }} /><Tooltip /><Area type="monotone" dataKey="revenue" stroke="#4c7de0" strokeWidth={2.5} fill="url(#revenueFill)" /><Area type="monotone" dataKey="profit" stroke="#20b486" strokeWidth={2.5} fill="transparent" /></AreaChart></ResponsiveContainer></div>
+      <section className="panel"><div className="panel-heading"><div><h3>Order pipeline</h3><p>Current order value by production stage · ₹</p></div><span className="soft-tag">From saved records</span></div>
+        <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={orderStatusData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf0f5" /><XAxis dataKey="status" axisLine={false} tickLine={false} tick={{ fill: "#929bad", fontSize: 9 }} /><YAxis axisLine={false} tickLine={false} tick={{ fill: "#929bad", fontSize: 10 }} /><Tooltip formatter={value => money(value)} /><Bar dataKey="value" name="Order value" fill="#4c7de0" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
       </section>
       <section className="panel"><div className="panel-heading"><div><h3>Printer status</h3><p>Across all locations</p></div><button className="link-btn" onClick={() => setPage("Printers")}>View all <ArrowUpRight size={14} /></button></div>
         <div className="printer-stats"><div><b>{printers.length}</b><small>Total printers</small></div><div><b>{printers.filter(p => p.status === "Running").length}</b><small>Running</small></div><div><b>{printers.filter(p => p.status === "Maintenance").length}</b><small>Maintenance</small></div></div>
@@ -241,7 +240,7 @@ export default function App() {
     <section className="panel"><div className="panel-heading"><div><h3>Recent orders</h3><p>Latest customer work</p></div><button className="link-btn" onClick={() => setPage("Orders")}>View all orders <ArrowUpRight size={14} /></button></div><OrderTable rows={orders.slice(0, 5)} /></section>
     <div className="lower-grid">
       <section className="panel"><div className="panel-heading"><div><h3>Inventory alerts</h3><p>Materials needing attention</p></div><button className="link-btn" onClick={() => setPage("Materials")}>Inventory</button></div>
-        {materials.filter(m => Number(m.stock) <= Number(m.min)).length === 0 ? <div className="success-line"><CheckCircle2 size={17} /> All material stocks are above minimum.</div> : materials.filter(m => Number(m.stock) <= Number(m.min)).map(m => <div className="alert-line" key={m.id}><AlertTriangle size={17} /><span><b>{m.name}</b><small>{m.stock} kg remaining · Minimum {m.min} kg</small></span><Status value="Low stock" /></div>)}
+        {lowStockItems.length === 0 ? <div className="success-line"><CheckCircle2 size={17} /> All material stocks are above minimum.</div> : lowStockItems.map(m => <div className="alert-line" key={m.id}><AlertTriangle size={17} /><span><b>{m.name}</b><small>{m.stock} kg remaining · Minimum {m.min} kg</small></span><Status value="Low stock" /></div>)}
       </section>
       <section className="panel"><div className="panel-heading"><div><h3>Quick actions</h3><p>Common tasks</p></div></div><div className="quick-grid">
         <button onClick={() => setModal("order")}><Plus /><span>New order</span></button><button onClick={() => openPrinter(null)}><Printer /><span>Add printer</span></button><button onClick={() => openMaterial(null)}><Boxes /><span>Add material</span></button><button onClick={() => setPage("Costing")}><Calculator /><span>Calculate cost</span></button>
