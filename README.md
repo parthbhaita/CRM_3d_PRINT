@@ -47,10 +47,10 @@ The intended backend is Supabase (PostgreSQL, Auth and Storage). Once the Supaba
 1. Apply the reviewed SQL foundation in `supabase/schema.sql` to a **new** Supabase project.
 2. Add the frontend environment variables in Cloudflare Pages → Settings → Environment variables:
    - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY` (or Supabase publishable key)
+   - `VITE_SUPABASE_PUBLISHABLE_KEY` (browser-safe publishable key)
 3. Trigger a new deployment after saving the variables.
 
-Never expose a Supabase service-role/secret key in frontend code, Vite variables, GitHub or Cloudflare client-side environment variables. Public client keys are safe only when Row Level Security and authorization policies are correctly configured.
+Never expose a Supabase secret key or legacy service-role key in frontend code, Vite variables, GitHub or Cloudflare client-side environment variables. Use the publishable key only with correctly configured Row Level Security. See [cloud setup checklist](docs/CLOUD_SETUP.md).
 
 ## Architecture target
 
