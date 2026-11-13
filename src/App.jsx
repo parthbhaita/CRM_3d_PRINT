@@ -42,7 +42,7 @@ const money = value => new Intl.NumberFormat("en-IN", { style: "currency", curre
 const orderStatuses = ["New enquiry", "Quotation", "Confirmed", "Printing", "Post-processing", "Quality check", "Packaging", "Shipped", "Delivered", "Cancelled"];
 const formatDate = value => {
   if (!value) return "Not set";
-  const date = /^\\d{4}-\\d{2}-\\d{2}$/.test(String(value)) ? new Date(value + "T00:00:00") : new Date(value);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? new Date(value + "T00:00:00") : new Date(value);
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 };
 const downloadCsv = (filename, rows) => {
@@ -50,7 +50,7 @@ const downloadCsv = (filename, rows) => {
   const headers = Object.keys(rows[0]);
   const cell = value => '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"';
   const csv = [headers.map(cell).join(","), ...rows.map(row => headers.map(key => cell(row[key])).join(","))].join("\r\n");
-  const blob = new Blob(["\\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url; link.download = filename; link.click();
@@ -119,6 +119,14 @@ export default function App() {
   const setCustomersAndSave = value => { setCustomers(value); saveLocal("pb_customers", value); };
 
   const filtered = list => list.filter(item => JSON.stringify(item).toLowerCase().includes(search.toLowerCase()));
+  const orderValue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
+  const activeOrders = orders.filter(order => !["Delivered", "Cancelled"].includes(order.status));
+  const lowStockItems = materials.filter(material => Number(material.stock) <= Number(material.min));
+  const orderStatusData = orderStatuses.filter(status => orders.some(order => order.status === status)).map(status => ({
+    status: status.length > 12 ? status.slice(0, 12) + "…" : status,
+    value: orders.filter(order => order.status === status).reduce((sum, order) => sum + Number(order.amount || 0), 0)
+  }));
+  const orderRows = filtered(orders).filter(order => orderFilter === "All" || order.status === orderFilter);
   const costParts = useMemo(() => ({
     material: Number(cost.grams) * Number(cost.rate) / 1000,
     electricity: Number(cost.hours) * Number(cost.watts) / 1000 * Number(cost.electricity),
@@ -128,6 +136,33 @@ export default function App() {
   const totalCost = costParts.material + costParts.electricity + costParts.machine + costParts.finishing;
   const quotePrice = totalCost * (1 + Number(cost.markup) / 100);
   const profit = quotePrice - totalCost;
+  const saveEstimate = () => {
+    const record = { id: "EST-" + Date.now(), createdAt: new Date().toISOString(), totalCost: Number(totalCost.toFixed(2)), sellingPrice: Number(quotePrice.toFixed(2)), profit: Number(profit.toFixed(2)), inputs: { ...cost } };
+    setEstimates([record, ...estimates].slice(0, 25));
+    notify("Cost estimate saved");
+  };
+  const updateOrderStatus = (id, status) => {
+    setOrdersAndSave(orders.map(order => order.id === id ? { ...order, status } : order));
+    notify("Order status updated");
+  };
+  const exportOrders = () => notify(downloadCsv("printbud-orders.csv", orders.map(({ id, customer, product, amount, status, due, location }) => ({ id, customer, product, amount, status, due, location }))) ? "Orders CSV exported" : "No orders to export");
+  const exportCustomers = () => notify(downloadCsv("printbud-customers.csv", customers.map(({ id, name, type, phone, city, orders: count, outstanding }) => ({ id, name, type, phone, city, orders: count, outstanding }))) ? "Customers CSV exported" : "No customers to export");
+  const exportMaterials = () => notify(downloadCsv("printbud-inventory.csv", materials.map(({ id, name, type, colour, stock, rate, min }) => ({ id, name, type, colour, stock_kg: stock, rate_per_kg: rate, minimum_kg: min, stock_value: Number(stock) * Number(rate) }))) ? "Inventory CSV exported" : "No materials to export");
+  const openStock = () => {
+    const first = materials[0];
+    setStockForm({ materialId: first?.id || "", quantity: 0, rate: Number(first?.rate || 0) });
+    setModal("stock");
+  };
+  const saveStockReceipt = event => {
+    event.preventDefault();
+    const quantity = Number(stockForm.quantity);
+    if (!stockForm.materialId || quantity <= 0) { notify("Enter a material and a quantity above zero"); return; }
+    setMaterialsAndSave(materials.map(item => item.id === stockForm.materialId
+      ? { ...item, stock: Number(item.stock || 0) + quantity, rate: Number(stockForm.rate || item.rate) }
+      : item));
+    setModal("");
+    notify("Stock receipt recorded");
+  };
 
   const openPrinter = printer => {
     setEditing(printer || null);
@@ -168,6 +203,8 @@ export default function App() {
     if (!window.confirm("Delete this " + type + "?")) return;
     if (type === "printer") setPrintersAndSave(printers.filter(item => item.id !== id));
     if (type === "material") setMaterialsAndSave(materials.filter(item => item.id !== id));
+    if (type === "customer") setCustomersAndSave(customers.filter(item => item.id !== id));
+    if (type === "order") setOrdersAndSave(orders.filter(item => item.id !== id));
     notify(type[0].toUpperCase() + type.slice(1) + " deleted");
   };
 
