@@ -103,7 +103,8 @@ const nav = [
 function Status({ value }) {
   const kind = ["Running", "Delivered", "Paid"].includes(value) ? "green" :
     ["Idle", "Printing"].includes(value) ? "blue" :
-    ["Low stock", "Maintenance"].includes(value) ? "amber" : "purple";
+    value === "Overdue" ? "red" :
+    ["Low stock", "Maintenance", "Offline", "Due today"].includes(value) ? "amber" : "purple";
   return <span className={"status " + kind}><i />{value}</span>;
 }
 function Modal({ title, onClose, children }) {
@@ -158,7 +159,7 @@ export default function App() {
   const maintenancePrinters = printers.filter(printer => ["Maintenance", "Offline"].includes(printer.status));
   const lowStockItems = materials.filter(material => Number(material.stock) <= Number(material.min));
   const alertCount = overdueOrders.length + dueTodayOrders.length + lowStockItems.length + maintenancePrinters.length;
-  const customerRows = customers.map(customer => ({ ...customer, orders: orders.filter(order => order.customerId === customer.id || (!order.customerId && String(order.customer).trim().toLowerCase() === String(customer.name).trim().toLowerCase())).length || Number(customer.orders || 0) }));
+  const customerRows = customers.map(customer => ({ ...customer, orders: Math.max(Number(customer.orders || 0), orders.filter(order => order.customerId === customer.id || (!order.customerId && String(order.customer).trim().toLowerCase() === String(customer.name).trim().toLowerCase())).length) }));
   const orderStatusData = orderStatuses.filter(status => orders.some(order => order.status === status)).map(status => ({
     status: status.length > 12 ? status.slice(0, 12) + "…" : status,
     value: orders.filter(order => order.status === status).reduce((sum, order) => sum + Number(order.amount || 0), 0)
@@ -243,7 +244,8 @@ export default function App() {
     const customerId = matchedCustomer?.id || "CUS-" + Date.now();
     const record = { ...orderForm, customer: customerName, customerId, product: productName, id: "PB-ORD-" + Date.now(), amount, due: orderForm.due || "Not set", createdAt: new Date().toISOString() };
     setOrdersAndSave([record, ...orders]);
-    if (!matchedCustomer) setCustomersAndSave([{ id: customerId, name: customerName, type: "Business", phone: "", city: "", orders: 0, outstanding: 0 }, ...customers]);
+    if (matchedCustomer) setCustomersAndSave(customers.map(customer => customer.id === matchedCustomer.id ? { ...customer, orders: Number(customer.orders || 0) + 1 } : customer));
+    else setCustomersAndSave([{ id: customerId, name: customerName, type: "Business", phone: "", city: "", orders: 1, outstanding: 0 }, ...customers]);
     setModal("");
     setOrderForm({ customer: "", product: "", amount: "", status: "New enquiry", due: suggestedDueDate(), location: "Main Workshop" });
     notify("Order created · customer record linked");
@@ -258,7 +260,14 @@ export default function App() {
       if (linkedOrders.length) { notify("Customer has linked orders · delete or reassign them first"); return; }
       setCustomersAndSave(customers.filter(item => item.id !== id));
     }
-    if (type === "order") setOrdersAndSave(orders.filter(item => item.id !== id));
+    if (type === "order") {
+      const removedOrder = orders.find(item => item.id === id);
+      setOrdersAndSave(orders.filter(item => item.id !== id));
+      if (removedOrder) {
+        const linkedCustomer = customers.find(customer => customer.id === removedOrder.customerId || (!removedOrder.customerId && customer.name.trim().toLowerCase() === String(removedOrder.customer).trim().toLowerCase()));
+        if (linkedCustomer) setCustomersAndSave(customers.map(customer => customer.id === linkedCustomer.id ? { ...customer, orders: Math.max(0, Number(customer.orders || 0) - 1) } : customer));
+      }
+    }
     notify(type[0].toUpperCase() + type.slice(1) + " deleted");
   };
 
