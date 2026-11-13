@@ -396,9 +396,30 @@ create index idx_payments_company_date on public.payments(company_id, payment_da
 -- Tenant isolation foundation: enable RLS and scope access to the user's company.
 create or replace function public.current_company_id()
 returns uuid language sql stable security definer set search_path = public
-as $$ select company_id from public.profiles where id = auth.uid() and is_active = true limit 1 $$;
+as $ select company_id from public.profiles where id = auth.uid() and is_active = true limit 1 $;
 
-do $$
+-- Company master data is private to the current tenant.
+-- Initial company creation must use a trusted server-side onboarding function.
+alter table public.companies enable row level security;
+create policy companies_select_own_tenant
+  on public.companies for select
+  using (id = public.current_company_id());
+create policy companies_admin_update
+  on public.companies for update
+  using (
+    id = public.current_company_id()
+    and exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+        and p.company_id = public.companies.id
+        and p.role = 'ADMIN'
+        and p.is_active = true
+    )
+  )
+  with check (id = public.current_company_id());
+-- No client INSERT or DELETE policy is provided for companies.
+
+do $
 declare t text;
 begin
   foreach t in array array[
