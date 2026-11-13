@@ -11,18 +11,19 @@ A modular CRM / ERP foundation for a multi-location 3D-printing business.
 - Currency: INR
 - UI: responsive modern SaaS dashboard
 
-## Current V0.1 prototype
+## Current V0.2 interactive UI
 
-- Dashboard with illustrative revenue, profit, order and printer KPIs
-- Printer register with add / edit / delete
-- Material register with add / edit / delete and low-stock alerts
-- Customer directory with add / edit
-- Order creation and order listing
-- Costing calculator: material, electricity, machine time, painting, labour, packaging, shipping and other costs
-- Markup-based price estimate with gross-margin display
-- GST / Non-GST billing workspace placeholder
-- Reports and company-default settings screens
-- Browser localStorage persistence for prototype records
+- Dashboard KPIs and order-value-by-stage chart calculate from the records currently stored in the app.
+- Printer register supports add / edit / delete and inline operating-status changes.
+- Material register supports add / edit / delete, stock receiving, reorder alerts and inventory CSV export.
+- Customer directory supports add / edit / delete and CSV export.
+- Orders support creation, inline production-status changes, status filtering, delete and CSV export.
+- Creating an order updates the matching customer's order count and outstanding estimate, or creates a basic customer record when the name is new.
+- Costing calculator covers material, electricity, machine time, painting, labour, packaging, shipping and other costs.
+- Cost estimates can be saved and revisited; calculator inputs and business defaults persist in the current browser.
+- Operations alerts summarize low stock, open orders and printers requiring attention.
+- Reports use current local records and can export orders to CSV.
+- Browser localStorage persistence only: these interactions are not yet cloud-synchronized between staff or devices.
 
 ## Cloud deployment: Cloudflare Pages
 
