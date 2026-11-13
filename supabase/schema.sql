@@ -393,52 +393,149 @@ create index idx_print_jobs_printer_status on public.print_jobs(printer_id, stat
 create index idx_invoices_customer_date on public.invoices(customer_id, invoice_date desc);
 create index idx_payments_company_date on public.payments(company_id, payment_date desc);
 
--- Tenant isolation foundation: enable RLS and scope access to the user's company.
+
+-- Tenant isolation and role-aware access for Print_Bud CRM.
+-- The first company / owner is created only by the trusted bootstrap-company-admin Edge Function.
+
+create table public.app_records (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  entity_type text not null check (entity_type in ('printers','materials','customers','orders','settings','estimates')),
+  record_key text not null,
+  payload jsonb not null default '{}'::jsonb,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(company_id, entity_type, record_key)
+);
+create index idx_app_records_company_entity on public.app_records(company_id, entity_type);
+
 create or replace function public.current_company_id()
-returns uuid language sql stable security definer set search_path = public
-as $ select company_id from public.profiles where id = auth.uid() and is_active = true limit 1 $;
+returns uuid
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select p.company_id
+  from public.profiles p
+  where p.id = auth.uid() and p.is_active = true
+  limit 1
+$$;
 
--- Company master data is private to the current tenant.
--- Initial company creation must use a trusted server-side onboarding function.
+create or replace function public.current_user_role()
+returns text
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select p.role
+  from public.profiles p
+  where p.id = auth.uid() and p.is_active = true
+  limit 1
+$$;
+
+revoke all on function public.current_company_id() from public, anon;
+revoke all on function public.current_user_role() from public, anon;
+grant execute on function public.current_company_id() to authenticated;
+grant execute on function public.current_user_role() to authenticated;
+
+-- A project-level event trigger may enable RLS automatically. It must never be
+-- callable as an RPC by browser roles.
+revoke all on function public.rls_auto_enable() from public, anon, authenticated;
+
 alter table public.companies enable row level security;
-create policy companies_select_own_tenant
-  on public.companies for select
-  using (id = public.current_company_id());
-create policy companies_admin_update
-  on public.companies for update
-  using (
-    id = public.current_company_id()
-    and exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid()
-        and p.company_id = public.companies.id
-        and p.role = 'ADMIN'
-        and p.is_active = true
-    )
-  )
-  with check (id = public.current_company_id());
--- No client INSERT or DELETE policy is provided for companies.
+alter table public.profiles enable row level security;
 
-do $
-declare t text;
+drop policy if exists companies_select_own_tenant on public.companies;
+drop policy if exists companies_admin_update on public.companies;
+create policy companies_select_own_tenant on public.companies
+  for select to authenticated
+  using (id = public.current_company_id());
+create policy companies_admin_update on public.companies
+  for update to authenticated
+  using (id = public.current_company_id() and public.current_user_role() = 'ADMIN')
+  with check (id = public.current_company_id() and public.current_user_role() = 'ADMIN');
+
+drop policy if exists profiles_select_self_or_admin on public.profiles;
+drop policy if exists profiles_update_self on public.profiles;
+create policy profiles_select_self_or_admin on public.profiles
+  for select to authenticated
+  using (
+    id = auth.uid()
+    or (company_id = public.current_company_id() and public.current_user_role() = 'ADMIN')
+  );
+create policy profiles_update_self on public.profiles
+  for update to authenticated
+  using (id = auth.uid() and company_id = public.current_company_id())
+  with check (id = auth.uid() and company_id = public.current_company_id());
+
+-- Profile inserts / deletes and role changes are service-side only.
+revoke all on public.profiles from anon, authenticated;
+grant select on public.profiles to authenticated;
+grant update (full_name, phone) on public.profiles to authenticated;
+
+revoke all on public.companies from anon, authenticated;
+grant select, update on public.companies to authenticated;
+
+do $$
+declare
+  t text;
+  admin_staff text[] := array[
+    'printers','printer_logs','maintenance_logs','materials','material_batches',
+    'stock_movements','customers','orders','order_items','print_jobs',
+    'print_job_materials','costing_profiles','cost_breakdowns','shipments',
+    'custom_fields','custom_field_values'
+  ];
+  admin_accountant text[] := array[
+    'expense_categories','expenses','invoices','invoice_items','payments'
+  ];
 begin
   foreach t in array array[
-    'locations','profiles','printers','printer_logs','maintenance_logs','materials',
+    'locations','printers','printer_logs','maintenance_logs','materials',
     'material_batches','stock_movements','customers','orders','order_items','print_jobs',
     'print_job_materials','costing_profiles','cost_breakdowns','expense_categories',
     'expenses','invoices','invoice_items','payments','shipments','custom_fields',
-    'custom_field_values','audit_logs'
+    'custom_field_values','audit_logs','app_records'
   ] loop
     execute format('alter table public.%I enable row level security', t);
-    execute format('create policy company_select on public.%I for select using (company_id = public.current_company_id())', t);
-    execute format('create policy company_insert on public.%I for insert with check (company_id = public.current_company_id())', t);
-    execute format('create policy company_update on public.%I for update using (company_id = public.current_company_id()) with check (company_id = public.current_company_id())', t);
-    execute format('create policy company_delete on public.%I for delete using (company_id = public.current_company_id())', t);
+    execute format('drop policy if exists company_select on public.%I', t);
+    execute format('drop policy if exists company_insert on public.%I', t);
+    execute format('drop policy if exists company_update on public.%I', t);
+    execute format('drop policy if exists company_delete on public.%I', t);
+    execute format('create policy company_select on public.%I for select to authenticated using (company_id = public.current_company_id())', t);
+
+    if t = 'locations' or t = 'custom_fields' then
+      execute format('create policy company_insert on public.%I for insert to authenticated with check (company_id = public.current_company_id() and public.current_user_role() = ''ADMIN'')', t);
+      execute format('create policy company_update on public.%I for update to authenticated using (company_id = public.current_company_id() and public.current_user_role() = ''ADMIN'') with check (company_id = public.current_company_id() and public.current_user_role() = ''ADMIN'')', t);
+      execute format('create policy company_delete on public.%I for delete to authenticated using (company_id = public.current_company_id() and public.current_user_role() = ''ADMIN'')', t);
+    elsif t = 'audit_logs' then
+      -- Audit rows are readable only by admins and accountants; clients cannot mutate them.
+      execute 'drop policy if exists company_select on public.audit_logs';
+      execute 'create policy company_select on public.audit_logs for select to authenticated using (company_id = public.current_company_id() and public.current_user_role() in (''ADMIN'',''ACCOUNTANT''))';
+    elsif t = 'app_records' then
+      execute 'create policy company_insert on public.app_records for insert to authenticated with check (company_id = public.current_company_id() and ((entity_type = ''settings'' and public.current_user_role() = ''ADMIN'') or (entity_type <> ''settings'' and public.current_user_role() in (''ADMIN'',''STAFF''))))';
+      execute 'create policy company_update on public.app_records for update to authenticated using (company_id = public.current_company_id() and ((entity_type = ''settings'' and public.current_user_role() = ''ADMIN'') or (entity_type <> ''settings'' and public.current_user_role() in (''ADMIN'',''STAFF'')))) with check (company_id = public.current_company_id() and ((entity_type = ''settings'' and public.current_user_role() = ''ADMIN'') or (entity_type <> ''settings'' and public.current_user_role() in (''ADMIN'',''STAFF''))))';
+      execute 'create policy company_delete on public.app_records for delete to authenticated using (company_id = public.current_company_id() and ((entity_type = ''settings'' and public.current_user_role() = ''ADMIN'') or (entity_type <> ''settings'' and public.current_user_role() in (''ADMIN'',''STAFF''))))';
+    elsif t = any(admin_accountant) then
+      execute format('create policy company_insert on public.%I for insert to authenticated with check (company_id = public.current_company_id() and public.current_user_role() in (''ADMIN'',''ACCOUNTANT''))', t);
+      execute format('create policy company_update on public.%I for update to authenticated using (company_id = public.current_company_id() and public.current_user_role() in (''ADMIN'',''ACCOUNTANT'')) with check (company_id = public.current_company_id() and public.current_user_role() in (''ADMIN'',''ACCOUNTANT''))', t);
+      execute format('create policy company_delete on public.%I for delete to authenticated using (company_id = public.current_company_id() and public.current_user_role() in (''ADMIN'',''ACCOUNTANT''))', t);
+    else
+      execute format('create policy company_insert on public.%I for insert to authenticated with check (company_id = public.current_company_id() and public.current_user_role() in (''ADMIN'',''STAFF''))', t);
+      execute format('create policy company_update on public.%I for update to authenticated using (company_id = public.current_company_id() and public.current_user_role() in (''ADMIN'',''STAFF'')) with check (company_id = public.current_company_id() and public.current_user_role() in (''ADMIN'',''STAFF''))', t);
+      execute format('create policy company_delete on public.%I for delete to authenticated using (company_id = public.current_company_id() and public.current_user_role() in (''ADMIN'',''STAFF''))', t);
+    end if;
   end loop;
 end $$;
 
--- IMPORTANT:
--- 1) companies onboarding / first-admin bootstrap must be performed through a trusted server-side function.
--- 2) Restrict writes by ADMIN/STAFF/ACCOUNTANT role before production.
--- 3) Add immutable invoice numbering and stock movement RPCs before live billing/stock operations.
--- 4) Test all policies with multiple users and multiple companies before importing real data.
+-- Browser roles receive table privileges; RLS above remains the authorization boundary.
+grant select, insert, update, delete on
+  public.locations, public.printers, public.printer_logs, public.maintenance_logs,
+  public.materials, public.material_batches, public.stock_movements, public.customers,
+  public.orders, public.order_items, public.print_jobs, public.print_job_materials,
+  public.costing_profiles, public.cost_breakdowns, public.expense_categories,
+  public.expenses, public.invoices, public.invoice_items, public.payments,
+  public.shipments, public.custom_fields, public.custom_field_values, public.app_records
+to authenticated;
+grant select on public.audit_logs to authenticated;
+
+-- The app_records bridge keeps the current interface's simple CRUD operational
+-- while the dedicated production tables are progressively wired into screens.
