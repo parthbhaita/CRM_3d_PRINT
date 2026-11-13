@@ -22,3 +22,19 @@
 .notification-list .notice{margin:0}
 @media(max-width:900px){.page-actions{justify-content:flex-start}.cloud-mode{display:none}}
 @media(max-width:560px){.page-actions{width:100%}.page-actions .btn{flex:1}.page-heading{align-items:flex-start;flex-direction:column}.inline-select.order-status{min-width:115px}}
+
+/* V0.3 automated work queue and alert emphasis */
+.smart-queue{display:grid;gap:2px}
+.queue-row{display:flex;align-items:center;gap:12px;padding:11px 2px;border-bottom:1px solid #f0f2f6;min-width:0}
+.queue-row:last-child{border-bottom:0}
+.queue-row .grow{min-width:0}
+.queue-row .grow b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#344158}
+.queue-row .grow small{display:block;margin-top:4px;font-size:9px;color:#929daf}
+.queue-label{flex:0 0 92px;font-size:8px;font-weight:800;letter-spacing:.65px;color:#8c96a7}
+.queue-row.overdue .queue-label{color:#c75b5b}
+.queue-row.due-today .queue-label{color:#bd873d}
+.queue-row.due-soon .queue-label{color:#4d75c8}
+.status.red{background:#fff0f0;color:#c75b5b}
+.alert-line.urgent{color:#c75b5b}
+.notification-count{position:absolute;top:-3px;right:-5px;min-width:15px;height:15px;padding:0 4px;border-radius:10px;background:#e05b5b;color:#fff;border:1px solid #fff;font-size:8px;font-weight:800;display:grid;place-items:center}
+@media(max-width:560px){.queue-row{gap:7px;flex-wrap:wrap}.queue-label{flex-basis:76px}.queue-row .grow{flex:1 1 55%}.queue-row .mini-action{margin-left:auto}}
