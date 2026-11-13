@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Bell, Boxes,
+  Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Bell, Boxes, CloudOff,
   Calculator, CalendarDays, Check, CheckCircle2, ChevronDown, CircleDollarSign,
   ClipboardList, Clock3, Download, FileText, Filter, Gauge, LayoutDashboard,
   MapPin, Menu, Package, Plus, Printer, ReceiptText, Search, Settings,
@@ -39,6 +39,25 @@ const revenueData = [
   { month: "Oct", revenue: 72, profit: 27 }, { month: "Nov", revenue: 84, profit: 32 }
 ];
 const money = value => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
+const orderStatuses = ["New enquiry", "Quotation", "Confirmed", "Printing", "Post-processing", "Quality check", "Packaging", "Shipped", "Delivered", "Cancelled"];
+const formatDate = value => {
+  if (!value) return "Not set";
+  const date = /^\\d{4}-\\d{2}-\\d{2}$/.test(String(value)) ? new Date(value + "T00:00:00") : new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+};
+const downloadCsv = (filename, rows) => {
+  if (!rows || !rows.length) return false;
+  const headers = Object.keys(rows[0]);
+  const cell = value => '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"';
+  const csv = [headers.map(cell).join(","), ...rows.map(row => headers.map(key => cell(row[key])).join(","))].join("\r\n");
+  const blob = new Blob(["\\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = filename; link.click();
+  URL.revokeObjectURL(url);
+  return true;
+};
+
 const readLocal = (key, fallback) => {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; }
   catch { return fallback; }
@@ -74,17 +93,24 @@ export default function App() {
   const [printers, setPrinters] = useState(() => readLocal("pb_printers", initialPrinters));
   const [materials, setMaterials] = useState(() => readLocal("pb_materials", initialMaterials));
   const [orders, setOrders] = useState(() => readLocal("pb_orders", initialOrders));
+  const [orderFilter, setOrderFilter] = useState("All");
+  const [estimates, setEstimates] = useState(() => readLocal("pb_estimates", []));
+  const [stockForm, setStockForm] = useState({ materialId: "", quantity: 0, rate: 0 });
   const [customers, setCustomers] = useState(() => readLocal("pb_customers", initialCustomers));
   const [modal, setModal] = useState("");
   const [editing, setEditing] = useState(null);
   const [toast, setToast] = useState("");
   const [billingMode, setBillingMode] = useState("GST");
-  const [settings, setSettings] = useState({ company: "Print_Bud", electricity: 9.5, markup: 35, gst: 18 });
+  const [settings, setSettings] = useState(() => readLocal("pb_settings", { company: "Print_Bud", electricity: 9.5, markup: 35, gst: 18 }));
   const [printerForm, setPrinterForm] = useState({});
   const [materialForm, setMaterialForm] = useState({});
   const [customerForm, setCustomerForm] = useState({});
   const [orderForm, setOrderForm] = useState({ customer: "", product: "", amount: "", status: "New enquiry", due: "", location: "Main Workshop" });
-  const [cost, setCost] = useState({ grams: 120, rate: 850, hours: 8, watts: 350, electricity: 9.5, machine: 12, painting: 120, labour: 100, packaging: 40, shipping: 80, other: 20, markup: 35 });
+  const [cost, setCost] = useState(() => readLocal("pb_cost", { grams: 120, rate: 850, hours: 8, watts: 350, electricity: 9.5, machine: 12, painting: 120, labour: 100, packaging: 40, shipping: 80, other: 20, markup: 35 }));
+
+  useEffect(() => saveLocal("pb_settings", settings), [settings]);
+  useEffect(() => saveLocal("pb_cost", cost), [cost]);
+  useEffect(() => saveLocal("pb_estimates", estimates), [estimates]);
 
   const notify = message => { setToast(message); window.setTimeout(() => setToast(""), 2400); };
   const setPrintersAndSave = value => { setPrinters(value); saveLocal("pb_printers", value); };
